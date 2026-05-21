@@ -8,6 +8,12 @@
     "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
+    },
+    "android": {
+      "androidNavigationBar": {
+        "visible": "immersive",
+        "behavior": "sticky-immersive"
+      }
     }
   }
 }
