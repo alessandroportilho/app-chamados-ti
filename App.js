@@ -22,9 +22,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 // ============================================================
-// 🔥 CONFIGURAÇÃO E INTEGRAÇÃO COM O FIREBASE
+// 🔥 CONFIGURAÇÃO E INTEGRAÇÃO COM O FIREBASE (SEM AUTH NATIVO)
 // ============================================================
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getFirestore, 
   collection, 
@@ -33,15 +33,10 @@ import {
   doc, 
   query, 
   orderBy,
-  onSnapshot 
+  onSnapshot,
+  where,
+  getDocs // Importado para buscar os usuários cadastrados no banco
 } from "firebase/firestore";
-// 🔐 Módulos de Autenticação Real importados do Firebase
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged
-} from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBP7cxxB1c3Yl1Ew9PZufgu8rJZFFE-9fE",
@@ -52,9 +47,8 @@ const firebaseConfig = {
   appId: "1:392670608526:web:14ba61dba2dd59abb59ddf"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-const auth = getAuth(app); // 🔥 Inicialização do motor de autenticação
 
 // ============================================================
 // 💾 CAMADA DE SERVIÇO (ESCRITA NO FIRESTORE)
@@ -87,39 +81,16 @@ const chamadosService = {
 };
 
 // ============================================================
-// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + AUTENTICAÇÃO REAL)
+// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + USUÁRIOS DO BANCO)
 // ============================================================
 const ChamadosContext = createContext();
 
 function ChamadosProvider({ children }) {
   const [chamados, setChamados] = useState([]);
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
-  const [inicializando, setInicializando] = useState(true); // Evita flash de telas no boot
 
-  // ⚡ Escuta ativa do Firebase Auth (Persistência de Sessão)
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        const email = user.email;
-        // Mapeamento inteligente de metadados baseado no utilizador autenticado
-        if (email === "aleportilho25@gmail.com") {
-          setUsuarioLogado({ email, nome: "Alessandro Portilho", role: "usuario", departamento: "Engenharia de Produção", fotoPerfil: null });
-        } else if (email === "aleportilhoti@gmail.com") {
-          setUsuarioLogado({ email, nome: "Alessandro Corazza", role: "tecnico", departamento: "Infraestrutura de TI", fotoPerfil: null });
-        } else {
-          setUsuarioLogado({ email, nome: email.split('@')[0], role: "usuario", departamento: "Geral", fotoPerfil: null });
-        }
-      } else {
-        setUsuarioLogado(null);
-      }
-      setInicializando(false);
-    });
-
-    return () => unsubscribeAuth();
-  }, []);
-
-  // ⚡ Escuta ativa do Firestore em tempo real
+  // ⚡ Escuta ativa do Firestore em tempo real para os chamados
   useEffect(() => {
     let unsubscribeSnap;
 
@@ -168,31 +139,40 @@ function ChamadosProvider({ children }) {
     setUsuarioLogado(prev => prev ? { ...prev, fotoPerfil: uri } : null);
   };
 
-  // 🔥 Chamada assíncrona real à API de Auth do Google
+  // 🔑 AUTENTICAÇÃO VIA BANCO DE DADOS FIRESTORE
   const realizarLogin = async (email, senha) => {
     try {
-      await signInWithEmailAndPassword(auth, email, senha);
-      return { sucesso: true };
+      const q = query(
+        collection(db, "usuarios"),
+        where("email", "==", email),
+        where("senha", "==", senha)
+      );
+      
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        // Encontrou o documento correspondente na coleção
+        const dadosBanco = querySnapshot.docs[0].data();
+        setUsuarioLogado({
+          email: dadosBanco.email,
+          nome: dadosBanco.nome,
+          role: dadosBanco.role,
+          departamento: dadosBanco.departamento,
+          fotoPerfil: null
+        });
+        return { sucesso: true };
+      } else {
+        return { sucesso: false, mensagem: "E-mail ou senha incorretos no banco de dados." };
+      }
     } catch (error) {
       console.error(error);
-      let mensagem = "Erro ao realizar autenticação.";
-      if (error.code === "auth/invalid-credential" || error.code === "auth/user-not-found" || error.code === "auth/wrong-password") {
-        mensagem = "E-mail ou senha incorretos no Firebase.";
-      } else if (error.code === "auth/invalid-email") {
-        mensagem = "O formato do e-mail inserido é inválido.";
-      }
-      return { sucesso: false, mensagem };
+      return { sucesso: false, mensagem: "Falha ao conectar com o servidor do Firestore." };
     }
   };
 
-  // 🔥 Logoff real encerrando o token no servidor
-  const realizarLogout = async () => {
-    try {
-      await signOut(auth);
-      setChamados([]);
-    } catch (error) {
-      Alert.alert("Erro", "Não foi possível encerrar a sessão.");
-    }
+  const realizarLogout = () => {
+    setUsuarioLogado(null);
+    setChamados([]);
   };
 
   return (
@@ -201,7 +181,6 @@ function ChamadosProvider({ children }) {
         chamados, 
         carregando, 
         usuarioLogado, 
-        inicializando,
         addChamado, 
         mudarStatusChamado, 
         realizarLogin, 
@@ -217,7 +196,7 @@ function ChamadosProvider({ children }) {
 const useChamados = () => useContext(ChamadosContext);
 
 // ============================================================
-// 🔐 TELA DE LOGIN (COM LOADER ASSÍNCRONO)
+// 🔐 TELA DE LOGIN
 // ============================================================
 function LoginScreen() {
   const { realizarLogin } = useChamados();
@@ -227,7 +206,7 @@ function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !senha) {
-      Alert.alert("Aviso", "Por favor, introduza o e-mail e a senha.");
+      Alert.alert("Aviso", "Por favor, preencha todos os campos.");
       return;
     }
     
@@ -236,7 +215,7 @@ function LoginScreen() {
     setAutenticando(false);
     
     if (!resultado.sucesso) {
-      Alert.alert("Falha de Autenticação", resultado.mensagem);
+      Alert.alert("Falha no Login", resultado.mensagem);
     }
   };
 
@@ -245,7 +224,7 @@ function LoginScreen() {
       <View style={loginStyles.box}>
         <Ionicons name="shield-checkmark" size={50} color="#2d5be3" style={{ alignSelf: "center", marginBottom: 10 }} />
         <Text style={loginStyles.logo}>HelpDesk TI</Text>
-        <Text style={loginStyles.welcome}>Área de Autenticação Homologada</Text>
+        <Text style={loginStyles.welcome}>Autenticação por Banco de Dados</Text>
 
         <TextInput 
           placeholder="E-mail corporativo" 
@@ -514,7 +493,7 @@ function PerfilScreen() {
             <View style={perfilStyles.infoRow}>
               <Ionicons name="mail" size={20} color="#4b6cb7" style={{ marginRight: 12 }} />
               <View>
-                <Text style={perfilStyles.infoLabel}>E-mail Registrado (Auth Real)</Text>
+                <Text style={perfilStyles.infoLabel}>E-mail Corporativo</Text>
                 <Text style={perfilStyles.infoValue}>{usuarioLogado?.email}</Text>
               </View>
             </View>
@@ -534,7 +513,7 @@ function PerfilScreen() {
             <View style={perfilStyles.infoRow}>
               <Ionicons name="ribbon" size={20} color="#4b6cb7" style={{ marginRight: 12 }} />
               <View>
-                <Text style={perfilStyles.infoLabel}>Nível de Privilégio</Text>
+                <Text style={perfilStyles.infoLabel}>Nível de Acesso</Text>
                 <Text style={[perfilStyles.infoValue, { fontWeight: "bold", color: "#2d5be3" }]}>
                   {usuarioLogado?.role.toUpperCase()}
                 </Text>
@@ -554,7 +533,7 @@ function PerfilScreen() {
 }
 
 // ============================================================
-// 🧭 NAVEGAÇÃO E COORDENAÇÃO DE SESSÃO
+// 🧭 NAVEGAÇÃO
 // ============================================================
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -586,17 +565,7 @@ function Tabs() {
 }
 
 function RootNavigator() {
-  const { usuarioLogado, inicializando } = useChamados();
-
-  // 🌟 Se estiver a verificar o token com o Google, mostra o ecrã azul de Loading
-  if (inicializando) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#2d5be3" }}>
-        <ActivityIndicator size="large" color="#fff" />
-        <Text style={{ color: "#fff", marginTop: 12, fontSize: 13 }}>Autenticando com o Firebase...</Text>
-      </View>
-    );
-  }
+  const { usuarioLogado } = useChamados();
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
