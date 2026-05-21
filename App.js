@@ -270,8 +270,17 @@ function HomeScreen({ navigation }) {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ fontWeight: "bold", fontSize: 16 }}>{item.titulo}</Text>
+            {/* 🛠️ AJUSTE DE LAYOUT: Alinhamento vertical centralizado */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              
+              {/* 🎯 CORREÇÃO DO BUG: flex: 1 e marginRight impedem o texto de empurrar a tag para fora */}
+              <Text 
+                style={{ fontWeight: "bold", fontSize: 16, flex: 1, marginRight: 12 }} 
+                numberOfLines={2}
+              >
+                {item.titulo}
+              </Text>
+              
               <Text style={[styles.statusTag, { backgroundColor: item.status === "Resolvido" ? "#d4edda" : item.status === "Em Progresso" ? "#fff3cd" : "#f8d7da" }]}>
                 {item.status}
               </Text>
@@ -370,17 +379,14 @@ function Tabs() {
   );
 }
 
-// 🌐 GERENCIADOR CENTRAL DE FLUXO (RESOLVE O CONGELAMENTO)
 function RootNavigator() {
   const { usuarioLogado } = useChamados();
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {usuarioLogado == null ? (
-        // Se não está logado, a única tela que existe é o Login
         <Stack.Screen name="Login" component={LoginScreen} />
       ) : (
-        // Se logou, o app monta o painel e destrói a tela de login da memória
         <>
           <Stack.Screen name="Main" component={Tabs} />
           <Stack.Screen name="NovoChamado" component={NovoChamadoScreen} options={{ headerShown: true, title: "Abrir Chamado" }} />
@@ -425,7 +431,7 @@ const styles = StyleSheet.create({
   filtroBtn: { padding: 8, backgroundColor: "#e9ecef", borderRadius: 20, minWidth: 70, alignItems: "center" },
   filtroAtivo: { backgroundColor: "#2d5be3" },
   card: { backgroundColor: "#fff", margin: 10, padding: 15, borderRadius: 10, borderWidth: 1, borderColor: "#eee", elevation: 1 },
-  statusTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, fontSize: 11, fontWeight: "bold", overflow: "hidden" },
+  statusTag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, fontSize: 11, fontWeight: "bold", overflow: "hidden" },
   adminActions: { flexDirection: "row", marginTop: 10, justifyContent: "flex-end" },
   actionBtn: { paddingVertical: 6, paddingHorizontal: 12, marginLeft: 8, borderRadius: 5 },
   fab: { position: "absolute", right: 20, bottom: 20, backgroundColor: "#2d5be3", width: 55, height: 55, borderRadius: 28, justifyContent: "center", alignItems: "center", elevation: 4 },
