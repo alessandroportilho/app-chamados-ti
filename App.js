@@ -18,7 +18,6 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 
-// 🌟 Importação de Ícones Nativos e Mídia (Expo SDK 54)
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
@@ -29,12 +28,12 @@ import { initializeApp } from "firebase/app";
 import { 
   getFirestore, 
   collection, 
-  getDocs, 
   addDoc, 
   updateDoc, 
   doc, 
   query, 
-  orderBy 
+  orderBy,
+  onSnapshot // ⚡ Importado o escutador em tempo real do Firestore
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -50,28 +49,9 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // ============================================================
-// 💾 CAMADA DE SERVIÇO (FIRESTORE)
+// 💾 CAMADA DE SERVIÇO (ESCRITA NO FIRESTORE)
 // ============================================================
 const chamadosService = {
-  buscarTodos: async () => {
-    try {
-      const q = query(collection(db, "chamados"), orderBy("dataCriacao", "desc"));
-      const querySnapshot = await getDocs(q);
-      
-      const listaChamados = [];
-      querySnapshot.forEach((documento) => {
-        listaChamados.push({
-          id: documento.id,
-          ...documento.data()
-        });
-      });
-      return listaChamados;
-    } catch (error) {
-      console.error(error);
-      throw error;
-    }
-  },
-
   inserir: async (novoChamado) => {
     try {
       const chamadoComData = {
@@ -99,7 +79,7 @@ const chamadosService = {
 };
 
 // ============================================================
-// 🧠 CONTEXTO GLOBAL (ESTADO DE CHAMADOS + AUTENTICAÇÃO)
+// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + AUTENTICAÇÃO)
 // ============================================================
 const ChamadosContext = createContext();
 
@@ -108,28 +88,42 @@ function ChamadosProvider({ children }) {
   const [carregando, setCarregando] = useState(true);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
 
-  const carregarChamados = async () => {
-    try {
-      setCarregando(true);
-      const dados = await chamadosService.buscarTodos();
-      setChamados(dados);
-    } catch (error) {
-      Alert.alert("Erro", "Não foi possível carregar os chamados.");
-    } finally {
-      setCarregando(false);
-    }
-  };
-
+  // ⚡ Lógica de escuta ativa (Realtime Stream)
   useEffect(() => {
+    let unsubscribe;
+
     if (usuarioLogado) {
-      carregarChamados();
+      setCarregando(true);
+      const q = query(collection(db, "chamados"), orderBy("dataCriacao", "desc"));
+
+      // O onSnapshot cria um canal aberto com o Firebase
+      unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const listaChamados = [];
+        querySnapshot.forEach((documento) => {
+          listaChamados.push({
+            id: documento.id,
+            ...documento.data()
+          });
+        });
+        setChamados(listaChamados);
+        setCarregando(false);
+      }, (error) => {
+        console.error("Erro na escuta realtime: ", error);
+        Alert.alert("Erro de Sincronização", "Falha ao receber atualizações da nuvem.");
+        setCarregando(false);
+      });
     }
+
+    // 🔥 Limpeza de memória: desliga o escutador se o usuário deslogar
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [usuarioLogado]);
 
   const addChamado = async (novo) => {
     try {
       await chamadosService.inserir(novo);
-      await carregarChamados();
+      // Não precisa recarregar manualmente! O onSnapshot detecta a inserção sozinho.
     } catch (error) {
       Alert.alert("Erro", "Não foi possível salvar o chamado.");
     }
@@ -138,7 +132,7 @@ function ChamadosProvider({ children }) {
   const mudarStatusChamado = async (id, novoStatus) => {
     try {
       await chamadosService.atualizarStatus(id, novoStatus);
-      await carregarChamados();
+      // Não precisa recarregar manualmente! O onSnapshot detecta a mudança sozinho.
     } catch (error) {
       Alert.alert("Erro", "Não foi possível alterar o status.");
     }
@@ -161,6 +155,7 @@ function ChamadosProvider({ children }) {
 
   const realizarLogout = () => {
     setUsuarioLogado(null);
+    setChamados([]); // Limpa a lista ao sair por segurança
   };
 
   return (
@@ -230,7 +225,7 @@ function LoginScreen() {
 }
 
 // ============================================================
-// 🏠 HOME SCREEN (VISÕES SEPARADAS COM CORREÇÃO DE BUG)
+// 🏠 HOME SCREEN (VISÕES SEPARADAS RESPONSIVAS)
 // ============================================================
 const { width } = Dimensions.get("window");
 
@@ -288,7 +283,6 @@ function HomeScreen({ navigation }) {
         contentContainerStyle={{ paddingBottom: 80 }}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            {/* 🎯 SOLUÇÃO DEFINITIVA DO BUG VISUAL DO STATUS: flex: 1 no contêiner do texto limita o empurrão */}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
               <View style={{ flex: 1, paddingRight: 10 }}>
                 <Text style={styles.cardTitulo} numberOfLines={2}>
@@ -445,7 +439,6 @@ function PerfilScreen() {
       <SafeAreaView>
         <View style={perfilStyles.container}>
           
-          {/* Avatar Interativo */}
           <View style={perfilStyles.avatarWrapper}>
             <TouchableOpacity style={perfilStyles.avatarTouch} onPress={gerenciarFoto}>
               {usuarioLogado?.fotoPerfil ? (
@@ -464,7 +457,6 @@ function PerfilScreen() {
           <Text style={perfilStyles.userName}>{usuarioLogado?.nome}</Text>
           <Text style={perfilStyles.userSub}>{usuarioLogado?.role === "tecnico" ? "Equipe de Suporte Avançado" : "Usuário Corporativo"}</Text>
 
-          {/* Cards de Detalhes */}
           <View style={perfilStyles.infoBox}>
             <View style={perfilStyles.infoRow}>
               <Ionicons name="mail" size={20} color="#4b6cb7" style={{ marginRight: 12 }} />
@@ -519,6 +511,10 @@ function Tabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarActiveTintColor: "#2d5be3",
+        tabBarInactiveTintColor: "#8e8e93",
+        tabBarStyle: { height: 60, paddingBottom: 8, paddingTop: 6, backgroundColor: "#fff" },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: "500" },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
           if (route.name === "Painel") {
@@ -528,10 +524,6 @@ function Tabs() {
           }
           return <Ionicons name={iconName} size={size + 2} color={color} />;
         },
-        tabBarActiveTintColor: "#2d5be3",
-        tabBarInactiveTintColor: "#8e8e93",
-        tabBarStyle: { height: 60, paddingBottom: 8, paddingTop: 6, backgroundColor: "#fff" },
-        tabBarLabelStyle: { fontSize: 12, fontWeight: "500" }
       })}
     >
       <Tab.Screen name="Painel" component={HomeScreen} />
@@ -620,6 +612,6 @@ const perfilStyles = StyleSheet.create({
   infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
   infoLabel: { fontSize: 12, color: "#94a3b8" },
   infoValue: { fontSize: 15, color: "#334155", marginTop: 2 },
-  divider: { height: 1, backgroundColor: "#f1f5f9", my: 8 },
+  divider: { height: 1, backgroundColor: "#f1f5f9", marginVertical: 8 },
   logoutBtn: { backgroundColor: "#dc3545", flexDirection: "row", width: "100%", padding: 16, borderRadius: 12, justifyContent: "center", alignItems: "center", marginTop: 30, elevation: 2 }
 });
