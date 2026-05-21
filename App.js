@@ -33,8 +33,15 @@ import {
   doc, 
   query, 
   orderBy,
-  onSnapshot // ⚡ Importado o escutador em tempo real do Firestore
+  onSnapshot 
 } from "firebase/firestore";
+// 🔐 Módulos de Autenticação Real importados do Firebase
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
+} from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBP7cxxB1c3Yl1Ew9PZufgu8rJZFFE-9fE",
@@ -47,6 +54,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app); // 🔥 Inicialização do motor de autenticação
 
 // ============================================================
 // 💾 CAMADA DE SERVIÇO (ESCRITA NO FIRESTORE)
@@ -79,7 +87,7 @@ const chamadosService = {
 };
 
 // ============================================================
-// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + AUTENTICAÇÃO)
+// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + AUTENTICAÇÃO REAL)
 // ============================================================
 const ChamadosContext = createContext();
 
@@ -87,17 +95,39 @@ function ChamadosProvider({ children }) {
   const [chamados, setChamados] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
+  const [inicializando, setInicializando] = useState(true); // Evita flash de telas no boot
 
-  // ⚡ Lógica de escuta ativa (Realtime Stream)
+  // ⚡ Escuta ativa do Firebase Auth (Persistência de Sessão)
   useEffect(() => {
-    let unsubscribe;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const email = user.email;
+        // Mapeamento inteligente de metadados baseado no utilizador autenticado
+        if (email === "aleportilho25@gmail.com") {
+          setUsuarioLogado({ email, nome: "Alessandro Portilho", role: "usuario", departamento: "Engenharia de Produção", fotoPerfil: null });
+        } else if (email === "aleportilhoti@gmail.com") {
+          setUsuarioLogado({ email, nome: "Alessandro Corazza", role: "tecnico", departamento: "Infraestrutura de TI", fotoPerfil: null });
+        } else {
+          setUsuarioLogado({ email, nome: email.split('@')[0], role: "usuario", departamento: "Geral", fotoPerfil: null });
+        }
+      } else {
+        setUsuarioLogado(null);
+      }
+      setInicializando(false);
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // ⚡ Escuta ativa do Firestore em tempo real
+  useEffect(() => {
+    let unsubscribeSnap;
 
     if (usuarioLogado) {
       setCarregando(true);
       const q = query(collection(db, "chamados"), orderBy("dataCriacao", "desc"));
 
-      // O onSnapshot cria um canal aberto com o Firebase
-      unsubscribe = onSnapshot(q, (querySnapshot) => {
+      unsubscribeSnap = onSnapshot(q, (querySnapshot) => {
         const listaChamados = [];
         querySnapshot.forEach((documento) => {
           listaChamados.push({
@@ -108,22 +138,19 @@ function ChamadosProvider({ children }) {
         setChamados(listaChamados);
         setCarregando(false);
       }, (error) => {
-        console.error("Erro na escuta realtime: ", error);
-        Alert.alert("Erro de Sincronização", "Falha ao receber atualizações da nuvem.");
+        console.error(error);
         setCarregando(false);
       });
     }
 
-    // 🔥 Limpeza de memória: desliga o escutador se o usuário deslogar
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeSnap) unsubscribeSnap();
     };
   }, [usuarioLogado]);
 
   const addChamado = async (novo) => {
     try {
       await chamadosService.inserir(novo);
-      // Não precisa recarregar manualmente! O onSnapshot detecta a inserção sozinho.
     } catch (error) {
       Alert.alert("Erro", "Não foi possível salvar o chamado.");
     }
@@ -132,7 +159,6 @@ function ChamadosProvider({ children }) {
   const mudarStatusChamado = async (id, novoStatus) => {
     try {
       await chamadosService.atualizarStatus(id, novoStatus);
-      // Não precisa recarregar manualmente! O onSnapshot detecta a mudança sozinho.
     } catch (error) {
       Alert.alert("Erro", "Não foi possível alterar o status.");
     }
@@ -142,20 +168,31 @@ function ChamadosProvider({ children }) {
     setUsuarioLogado(prev => prev ? { ...prev, fotoPerfil: uri } : null);
   };
 
-  const realizarLogin = (email, senha) => {
-    if (email === "aleportilho25@gmail.com" && senha === "123456@") {
-      setUsuarioLogado({ email, nome: "Alessandro Portilho", role: "usuario", departamento: "Engenharia de Produção", fotoPerfil: null });
-      return true;
-    } else if (email === "aleportilhoti@gmail.com" && senha === "12345678@") {
-      setUsuarioLogado({ email, nome: "Alessandro Corazza", role: "tecnico", departamento: "Infraestrutura de TI", fotoPerfil: null });
-      return true;
+  // 🔥 Chamada assíncrona real à API de Auth do Google
+  const realizarLogin = async (email, senha) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, senha);
+      return { sucesso: true };
+    } catch (error) {
+      console.error(error);
+      let mensagem = "Erro ao realizar autenticação.";
+      if (error.code === "auth/invalid-credential" || error.code === "auth/user-not-found" || error.code === "auth/wrong-password") {
+        mensagem = "E-mail ou senha incorretos no Firebase.";
+      } else if (error.code === "auth/invalid-email") {
+        mensagem = "O formato do e-mail inserido é inválido.";
+      }
+      return { sucesso: false, mensagem };
     }
-    return false;
   };
 
-  const realizarLogout = () => {
-    setUsuarioLogado(null);
-    setChamados([]); // Limpa a lista ao sair por segurança
+  // 🔥 Logoff real encerrando o token no servidor
+  const realizarLogout = async () => {
+    try {
+      await signOut(auth);
+      setChamados([]);
+    } catch (error) {
+      Alert.alert("Erro", "Não foi possível encerrar a sessão.");
+    }
   };
 
   return (
@@ -164,6 +201,7 @@ function ChamadosProvider({ children }) {
         chamados, 
         carregando, 
         usuarioLogado, 
+        inicializando,
         addChamado, 
         mudarStatusChamado, 
         realizarLogin, 
@@ -179,17 +217,26 @@ function ChamadosProvider({ children }) {
 const useChamados = () => useContext(ChamadosContext);
 
 // ============================================================
-// 🔐 TELA DE LOGIN
+// 🔐 TELA DE LOGIN (COM LOADER ASSÍNCRONO)
 // ============================================================
 function LoginScreen() {
   const { realizarLogin } = useChamados();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [autenticando, setAutenticando] = useState(false);
 
-  const handleLogin = () => {
-    const sucesso = realizarLogin(email.trim().toLowerCase(), senha);
-    if (!sucesso) {
-      Alert.alert("Falha no Login", "E-mail ou senha inválidos para o ambiente acadêmico.");
+  const handleLogin = async () => {
+    if (!email || !senha) {
+      Alert.alert("Aviso", "Por favor, introduza o e-mail e a senha.");
+      return;
+    }
+    
+    setAutenticando(true);
+    const resultado = await realizarLogin(email.trim().toLowerCase(), senha);
+    setAutenticando(false);
+    
+    if (!resultado.sucesso) {
+      Alert.alert("Falha de Autenticação", resultado.mensagem);
     }
   };
 
@@ -198,7 +245,7 @@ function LoginScreen() {
       <View style={loginStyles.box}>
         <Ionicons name="shield-checkmark" size={50} color="#2d5be3" style={{ alignSelf: "center", marginBottom: 10 }} />
         <Text style={loginStyles.logo}>HelpDesk TI</Text>
-        <Text style={loginStyles.welcome}>Controle de Acesso Corporativo</Text>
+        <Text style={loginStyles.welcome}>Área de Autenticação Homologada</Text>
 
         <TextInput 
           placeholder="E-mail corporativo" 
@@ -207,6 +254,7 @@ function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
+          editable={!autenticando}
         />
         <TextInput 
           placeholder="Senha" 
@@ -214,10 +262,15 @@ function LoginScreen() {
           secureTextEntry 
           value={senha} 
           onChangeText={setSenha}
+          editable={!autenticando}
         />
 
-        <TouchableOpacity style={loginStyles.btn} onPress={handleLogin}>
-          <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>Acessar Painel</Text>
+        <TouchableOpacity style={loginStyles.btn} onPress={handleLogin} disabled={autenticando}>
+          {autenticando ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 16 }}>Acessar Painel</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -225,7 +278,7 @@ function LoginScreen() {
 }
 
 // ============================================================
-// 🏠 HOME SCREEN (VISÕES SEPARADAS RESPONSIVAS)
+// 🏠 HOME SCREEN
 // ============================================================
 const { width } = Dimensions.get("window");
 
@@ -372,7 +425,7 @@ function NovoChamadoScreen({ navigation }) {
       
       <Text style={[styles.formLabel, { marginTop: 15 }]}>Descrição Detalhada</Text>
       <TextInput 
-        placeholder="Descreva o mau funcionamento com detalhes para a equipe técnica..." 
+        placeholder="Descreva o mau funcionamento com detalhes..." 
         style={[styles.formInput, { height: 120, textAlignVertical: "top" }]} 
         multiline 
         value={descricao} 
@@ -387,7 +440,7 @@ function NovoChamadoScreen({ navigation }) {
 }
 
 // ============================================================
-// 👤 PERFIL SCREEN (FOTO NATIVA + CAMPOS AVANÇADOS)
+// 👤 PERFIL SCREEN
 // ============================================================
 function PerfilScreen() {
   const { usuarioLogado, realizarLogout, atualizarFotoPerfil } = useChamados();
@@ -461,7 +514,7 @@ function PerfilScreen() {
             <View style={perfilStyles.infoRow}>
               <Ionicons name="mail" size={20} color="#4b6cb7" style={{ marginRight: 12 }} />
               <View>
-                <Text style={perfilStyles.infoLabel}>E-mail Registrado</Text>
+                <Text style={perfilStyles.infoLabel}>E-mail Registrado (Auth Real)</Text>
                 <Text style={perfilStyles.infoValue}>{usuarioLogado?.email}</Text>
               </View>
             </View>
@@ -501,7 +554,7 @@ function PerfilScreen() {
 }
 
 // ============================================================
-// 🧭 NAVEGAÇÃO TURBINADA COM ÍCONES NAS ABAS
+// 🧭 NAVEGAÇÃO E COORDENAÇÃO DE SESSÃO
 // ============================================================
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -533,7 +586,18 @@ function Tabs() {
 }
 
 function RootNavigator() {
-  const { usuarioLogado } = useChamados();
+  const { usuarioLogado, inicializando } = useChamados();
+
+  // 🌟 Se estiver a verificar o token com o Google, mostra o ecrã azul de Loading
+  if (inicializando) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#2d5be3" }}>
+        <ActivityIndicator size="large" color="#fff" />
+        <Text style={{ color: "#fff", marginTop: 12, fontSize: 13 }}>Autenticando com o Firebase...</Text>
+      </View>
+    );
+  }
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {usuarioLogado == null ? (
