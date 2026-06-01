@@ -23,7 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 // ============================================================
-// 🔥 CONFIGURAÇÃO E INTEGRAÇÃO COM O FIREBASE (SEM AUTH NATIVO)
+//  CONFIGURAÇÃO E INTEGRAÇÃO COM O FIREBASE (SEM AUTH NATIVO)
 // ============================================================
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
@@ -52,7 +52,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
 // ============================================================
-// 💾 CAMADA DE SERVIÇO (ESCRITA NO FIRESTORE)
+//  CAMADA DE SERVIÇO (ESCRITA NO FIRESTORE)
 // ============================================================
 const chamadosService = {
   inserir: async (novoChamado) => {
@@ -82,7 +82,7 @@ const chamadosService = {
 };
 
 // ============================================================
-// 🧠 CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + USUÁRIOS DO BANCO)
+//  CONTEXTO GLOBAL (ESTADO EM TEMPO REAL + USUÁRIOS DO BANCO)
 // ============================================================
 const ChamadosContext = createContext();
 
@@ -91,7 +91,7 @@ function ChamadosProvider({ children }) {
   const [carregando, setCarregando] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
 
-  // ⚡ Escuta ativa do Firestore em tempo real para os chamados
+  //  Escuta ativa do Firestore em tempo real para os chamados
   useEffect(() => {
     let unsubscribeSnap;
 
@@ -140,7 +140,7 @@ function ChamadosProvider({ children }) {
     setUsuarioLogado(prev => prev ? { ...prev, fotoPerfil: uri } : null);
   };
 
-  // 🔑 AUTENTICAÇÃO VIA BANCO DE DADOS FIRESTORE
+  //  AUTENTICAÇÃO VIA BANCO DE DADOS FIRESTORE
   const realizarLogin = async (email, senha) => {
     try {
       const q = query(
@@ -197,7 +197,7 @@ function ChamadosProvider({ children }) {
 const useChamados = () => useContext(ChamadosContext);
 
 // ============================================================
-// 🔐 TELA DE LOGIN
+//  TELA DE LOGIN
 // ============================================================
 function LoginScreen() {
   const { realizarLogin } = useChamados();
@@ -258,7 +258,7 @@ function LoginScreen() {
 }
 
 // ============================================================
-// 🏠 HOME SCREEN
+//  HOME SCREEN
 // ============================================================
 const { width } = Dimensions.get("window");
 
@@ -373,7 +373,7 @@ function HomeScreen({ navigation }) {
 }
 
 // ============================================================
-// 📝 NOVO CHAMADO SCREEN
+//  NOVO CHAMADO SCREEN
 // ============================================================
 function NovoChamadoScreen({ navigation }) {
   const { addChamado, usuarioLogado } = useChamados();
@@ -420,7 +420,7 @@ function NovoChamadoScreen({ navigation }) {
 }
 
 // ============================================================
-// 👤 PERFIL SCREEN
+//  PERFIL SCREEN
 // ============================================================
 function PerfilScreen() {
   const { usuarioLogado, realizarLogout, atualizarFotoPerfil } = useChamados();
@@ -534,7 +534,7 @@ function PerfilScreen() {
 }
 
 // ============================================================
-// 🧭 NAVEGAÇÃO
+//  NAVEGAÇÃO
 // ============================================================
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -593,7 +593,7 @@ export default function App() {
 }
 
 // ============================================================
-// 🎨 FOLHAS DE ESTILO (DESIGN PREMIUM)
+//  FOLHAS DE ESTILO (DESIGN PREMIUM)
 // ============================================================
 const loginStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#2d5be3", justifyContent: "center", alignItems: "center" },
